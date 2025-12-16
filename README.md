@@ -77,15 +77,25 @@ Instructor-led introduction covering:
 - Virtual Factory data sources
 - What is MCP and why manufacturers should care
 
-### Session 2: Building Your First MCP Server — MQTT & UNS (10:00 - 10:45)
+### Session 2: Building Your First MCP Server — MQTT & UNS (10:00 - 10:45) ✅
 
 **Guide:** [day1/mqtt_server/README.md](day1/mqtt_server/README.md)
 
+**Status:** Complete
+
 Build a Python MCP server that connects to the Flexible Packager Unified Namespace via MQTT. Query and publish to the UNS using natural language through Claude Desktop.
+
+**Tools Implemented:**
+- `list_uns_topics` - Discover available topics
+- `get_topic_value` - Read specific topic values  
+- `search_topics` - Search topics by pattern
+- `publish_message` - Publish messages to topics
 
 ### Session 3: Multi-Server Architecture — Adding MySQL (11:00 - 11:45)
 
 **Guide:** [day1/mysql_server/README.md](day1/mysql_server/README.md)
+
+**Status:** Not started
 
 Add a second MCP server for relational database access. Configure Claude Desktop for multiple servers and demonstrate cross-server queries.
 

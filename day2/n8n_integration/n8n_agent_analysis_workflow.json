@@ -1,0 +1,224 @@
+{
+  "name": "Press 103 - Agent Analysis & UNS Publishing",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "*/15 * * * *"
+            }
+          ]
+        }
+      },
+      "id": "trigger-1",
+      "name": "Every 15 Minutes",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [0, 0]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "http://host.docker.internal:8001/a2a/skills/get_equipment_status",
+        "options": {}
+      },
+      "id": "http-status",
+      "name": "Get Equipment Status",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [220, 0]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "http://host.docker.internal:8001/a2a/skills/get_oee_summary",
+        "options": {}
+      },
+      "id": "http-oee",
+      "name": "Get OEE Summary",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [440, 0]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "http://host.docker.internal:8001/a2a/skills/get_downtime_summary",
+        "options": {}
+      },
+      "id": "http-downtime",
+      "name": "Get Downtime Summary",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [660, 0]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Combine all data from the three A2A skills\nconst statusData = $('Get Equipment Status').first().json.data;\nconst oeeData = $('Get OEE Summary').first().json.data;\nconst downtimeData = $('Get Downtime Summary').first().json.data;\n\n// Build comprehensive context for the agent\nconst contextData = {\n  equipment: {\n    running: statusData.running,\n    state: statusData.state,\n    speed: statusData.speed,\n    setpoint: statusData.setpoint,\n    speed_percent: statusData.speed_percent,\n    shift: statusData.shift,\n    mqtt_connected: statusData.mqtt_connected\n  },\n  oee: {\n    overall: oeeData.oee,\n    availability: oeeData.availability,\n    performance: oeeData.performance,\n    quality: oeeData.quality,\n    good_count: oeeData.good_count,\n    bad_count: oeeData.bad_count,\n    total_count: oeeData.total_count,\n    runtime_minutes: oeeData.runtime_minutes,\n    downtime_minutes: oeeData.downtime_minutes,\n    rating: oeeData.rating\n  },\n  downtime: {\n    current_state: downtimeData.current_state,\n    is_running: downtimeData.is_running,\n    total_downtime_minutes: downtimeData.total_downtime_minutes,\n    planned_minutes: downtimeData.planned_minutes,\n    unplanned_minutes: downtimeData.unplanned_minutes,\n    top_reasons: downtimeData.top_reasons\n  }\n};\n\nreturn [{\n  json: {\n    contextData: contextData,\n    // Build a natural language prompt for the agent\n    prompt: `Analyze the current production status of Press 103 and provide insights:\\n\\n` +\n      `Equipment Status: ${statusData.running ? 'Running' : 'Stopped'}, Speed: ${statusData.speed_percent.toFixed(1)}% of setpoint, Shift: ${statusData.shift}\\n` +\n      `OEE: ${(oeeData.oee * 100).toFixed(1)}% (${oeeData.rating}) - A: ${(oeeData.availability * 100).toFixed(1)}%, P: ${(oeeData.performance * 100).toFixed(1)}%, Q: ${(oeeData.quality * 100).toFixed(1)}%\\n` +\n      `Production: ${oeeData.good_count} good, ${oeeData.bad_count} bad\\n` +\n      `Downtime: ${downtimeData.total_downtime_minutes.toFixed(0)} minutes total (Planned: ${downtimeData.planned_minutes.toFixed(0)}, Unplanned: ${downtimeData.unplanned_minutes.toFixed(0)})\\n` +\n      (downtimeData.top_reasons.length > 0 ? `Top Issues: ${downtimeData.top_reasons.slice(0, 3).map(r => r.state_name).join(', ')}\\n` : '') +\n      `\\nProvide a concise shift status observation highlighting key concerns and recommendations.`\n  }\n}];"
+      },
+      "id": "code-prepare",
+      "name": "Prepare Agent Context",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [880, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:8001/a2a/message/send",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"message\": {\n    \"role\": \"user\",\n    \"parts\": [\n      {\n        \"type\": \"text\",\n        \"text\": \"{{ $json.prompt }}\"\n      }\n    ]\n  }\n}",
+        "options": {}
+      },
+      "id": "http-agent",
+      "name": "Send to Production Agent",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1100, 0]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Extract agent's analysis from A2A response\nconst a2aResponse = $input.first().json;\nconst contextData = $('Prepare Agent Context').first().json.contextData;\n\n// The agent's analysis is in the artifacts\nlet agentAnalysis = 'No analysis available';\nif (a2aResponse.artifacts && a2aResponse.artifacts.length > 0) {\n  const artifact = a2aResponse.artifacts[0];\n  if (artifact.type === 'application/json' && artifact.data) {\n    // If the agent returned structured data\n    agentAnalysis = JSON.stringify(artifact.data);\n  } else if (artifact.data) {\n    agentAnalysis = artifact.data;\n  }\n}\n\n// Build structured observation for UNS\nconst observation = {\n  timestamp: new Date().toISOString(),\n  source: 'n8n-agent-workflow',\n  press: 'Press 103',\n  shift: contextData.equipment.shift,\n  status: {\n    running: contextData.equipment.running,\n    state: contextData.equipment.state,\n    speed_percent: contextData.equipment.speed_percent\n  },\n  oee: {\n    overall: contextData.oee.overall,\n    rating: contextData.oee.rating,\n    availability: contextData.oee.availability,\n    performance: contextData.oee.performance,\n    quality: contextData.oee.quality\n  },\n  production: {\n    good_count: contextData.oee.good_count,\n    bad_count: contextData.oee.bad_count\n  },\n  downtime: {\n    total_minutes: contextData.downtime.total_downtime_minutes,\n    unplanned_minutes: contextData.downtime.unplanned_minutes,\n    top_reasons: contextData.downtime.top_reasons.slice(0, 3)\n  },\n  agent_analysis: agentAnalysis,\n  task_id: a2aResponse.task_id\n};\n\nreturn [{\n  json: {\n    topic: 'Enterprise/Dallas/Press/Press 103/Agent/Observations',\n    payload: JSON.stringify(observation)\n  }\n}];"
+      },
+      "id": "code-format",
+      "name": "Format for UNS",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1320, 0]
+    },
+    {
+      "parameters": {
+        "protocol": "mqtt",
+        "broker": "={{ $env.MQTT_BROKER || 'balancer.virtualfactory.online' }}",
+        "port": "={{ $env.MQTT_PORT || 1883 }}",
+        "clientId": "n8n-agent-workflow",
+        "username": "={{ $env.MQTT_USERNAME }}",
+        "password": "={{ $env.MQTT_PASSWORD }}",
+        "topic": "={{ $json.topic }}",
+        "message": "={{ $json.payload }}",
+        "options": {
+          "qos": 1,
+          "retain": false
+        }
+      },
+      "id": "mqtt-publish",
+      "name": "Publish to UNS",
+      "type": "n8n-nodes-base.mqtt",
+      "typeVersion": 1,
+      "position": [1540, 0]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Log success\nconst observation = $('Format for UNS').first().json;\nconsole.log('Published observation to UNS:', observation.topic);\n\nreturn [{\n  json: {\n    success: true,\n    topic: observation.topic,\n    timestamp: new Date().toISOString()\n  }\n}];"
+      },
+      "id": "code-log",
+      "name": "Log Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1760, 0]
+    }
+  ],
+  "connections": {
+    "Every 15 Minutes": {
+      "main": [
+        [
+          {
+            "node": "Get Equipment Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Equipment Status": {
+      "main": [
+        [
+          {
+            "node": "Get OEE Summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get OEE Summary": {
+      "main": [
+        [
+          {
+            "node": "Get Downtime Summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Downtime Summary": {
+      "main": [
+        [
+          {
+            "node": "Prepare Agent Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Agent Context": {
+      "main": [
+        [
+          {
+            "node": "Send to Production Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send to Production Agent": {
+      "main": [
+        [
+          {
+            "node": "Format for UNS",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format for UNS": {
+      "main": [
+        [
+          {
+            "node": "Publish to UNS",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Publish to UNS": {
+      "main": [
+        [
+          {
+            "node": "Log Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": ["production", "agent", "a2a"],
+  "triggerCount": 0,
+  "pinData": {}
+}

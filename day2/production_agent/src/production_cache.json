@@ -1,0 +1,1 @@
+{"Enterprise/Dallas/Press/Press 103/Agent/Observations": {"value": "{\"timestamp\": \"2025-12-17T17:33:27.650673Z\", \"source\": \"n8n-agent\", \"category\": \"shift-check\", \"message\": \"Shift Status Check: Press 103 is STOPPED (state: Unknown). OEE: 0.0% (A: 0.0%, P: 0.0%, Q: 0.0%). Work Order N/A: 0% complete (0 good, 0 remaining).\"}", "timestamp": 1765992809.2586205}}
